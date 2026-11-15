@@ -1,6 +1,7 @@
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 import os
+from pathlib import Path
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.preprocessing import image_dataset_from_directory
@@ -8,7 +9,7 @@ from tensorflow.keras.preprocessing import image_dataset_from_directory
 # 1. Parameter definieren
 IMG_SIZE = (224, 224)
 BATCH_SIZE = 40
-DATA_DIR = 'dataset'
+DATA_DIR = Path(__file__).resolve().parent / 'Dataset'
 
 print("Lade Datensatz...")
 
@@ -19,7 +20,8 @@ train_dataset = image_dataset_from_directory(
     subset="training",
     seed=123,
     image_size=IMG_SIZE,
-    batch_size=BATCH_SIZE
+    batch_size=BATCH_SIZE,
+    shuffle=True
 )
 
 val_dataset = image_dataset_from_directory(
@@ -28,7 +30,8 @@ val_dataset = image_dataset_from_directory(
     subset="validation",
     seed=123,
     image_size=IMG_SIZE,
-    batch_size=BATCH_SIZE
+    batch_size=BATCH_SIZE,
+    shuffle=False
 )
 
 class_names = train_dataset.class_names
@@ -112,16 +115,14 @@ y = np.asarray(list(val_dataset.unbatch().map(lambda bild, label: label)))
 yhat = model.predict(val_dataset)
 yhatnum = yhat.argmax(axis=1)
 
-# In Klassennamen ('Bad_Platine', 'Good_Platine') übersetzen
-y_str = np.array(class_names)[y]
-yhat_str = np.array(class_names)[yhatnum]
-
 # Plotten der normalisierten Konfusionsmatrix
-fig, ax = plt.subplots(figsize=(6, 6))
+class_ids = np.arange(len(class_names))
+fig, ax = plt.subplots(figsize=(8, 8))
 
 ConfusionMatrixDisplay.from_predictions(
-    y_str, yhat_str,
-    labels=class_names,
+    y, yhatnum,
+    labels=class_ids,
+    display_labels=class_names,
     normalize='true',       # Prozentuale Normalisierung
     cmap=plt.cm.Blues,
     ax=ax,
@@ -141,13 +142,15 @@ from sklearn.metrics import classification_report, precision_score, recall_score
 
 # 1. Detaillierter Klassifikationsbericht als Text (gibt Precision, Recall & F1 für jede Klasse aus)
 print("\n--- Classification Report ---")
-report = classification_report(y_str, yhat_str, target_names=class_names)
+report = classification_report(
+    y, yhatnum, labels=class_ids, target_names=class_names, zero_division=0
+)
 print(report)
 
 # average='weighted' oder 'macro' sorgt dafür, dass bei mehreren Klassen gemittelt wird
-prec = precision_score(y_str, yhat_str, average='weighted')
-rec = recall_score(y_str, yhat_str, average='weighted')
-f1 = f1_score(y_str, yhat_str, average='weighted')
+prec = precision_score(y, yhatnum, average='weighted', zero_division=0)
+rec = recall_score(y, yhatnum, average='weighted', zero_division=0)
+f1 = f1_score(y, yhatnum, average='weighted', zero_division=0)
 
 print(f"Gesamt Precision: {prec:.4f}")
 print(f"Gesamt Recall:    {rec:.4f}")
