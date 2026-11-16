@@ -8,27 +8,24 @@ from tensorflow.keras.preprocessing import image_dataset_from_directory
 
 # 1. Parameter definieren
 IMG_SIZE = (224, 224)
-BATCH_SIZE = 40
+BATCH_SIZE = 30
 DATA_DIR = Path(__file__).resolve().parent / 'Dataset'
 
 print("Lade Datensatz...")
 
 # 2. Trainings- und Validierungsdaten automatisch aus den Ordnern laden
+TRAIN_DIR = Path(__file__).resolve().parent / 'Dataset' / 'train'
+VAL_DIR = Path(__file__).resolve().parent / 'Dataset' / 'val'
+
 train_dataset = image_dataset_from_directory(
-    DATA_DIR,
-    validation_split=0.2,
-    subset="training",
-    seed=123,
+    TRAIN_DIR,
     image_size=IMG_SIZE,
     batch_size=BATCH_SIZE,
     shuffle=True
 )
 
 val_dataset = image_dataset_from_directory(
-    DATA_DIR,
-    validation_split=0.2,
-    subset="validation",
-    seed=123,
+    VAL_DIR,
     image_size=IMG_SIZE,
     batch_size=BATCH_SIZE,
     shuffle=False
@@ -52,7 +49,7 @@ base_model = tf.keras.applications.MobileNetV2(
 # Die Gewichte der Basis erst einmal einfrieren
 base_model.trainable = False
 
-# 4. Eigenes Netz aufbauen (Basis + Klassifikationsschicht für gut/schlecht)
+# 4. Netz aufbauen (Basis + Klassifikationsschicht für gut/schlecht)
 model = models.Sequential([
     layers.Rescaling(1./127.5, offset=-1, input_shape=(224, 224, 3)), # Normalisierung auf [-1, 1]
     base_model,
