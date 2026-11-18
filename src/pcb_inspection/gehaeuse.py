@@ -162,7 +162,7 @@ def process_image(path: Path, model, ic_ids: list[int], config: Config,
     for old in folder.glob('gehaeuse_[0-9][0-9][0-9].png'):
         if old.name not in current:
             old.unlink()
-    message = f'{path.name}: {len(candidates)} IC-Gehäuse → {folder}'
+    message = f'{path.name}: {len(candidates)} IC-Gehäuse -> {folder}'
     if len(candidates) != config.expected_count:
         message += f' (erwartet: {config.expected_count}; bitte Übersicht prüfen)'
     print(message)

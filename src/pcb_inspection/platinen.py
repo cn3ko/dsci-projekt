@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import random
@@ -205,13 +206,12 @@ def process_image(image_path: Path, config: Config, show_preview: bool = False) 
     top, left, bottom, right = bounds
     crop = np.dstack((image[top:bottom, left:right],
                       mask[top:bottom, left:right].astype(np.uint8) * 255))
-    output_path = config.output_path / f'{image_path.stem}_crop.png'
+    # Früher wurde zusätzlich ein identisches *_crop.png geschrieben; eine Datei reicht.
+    output_path = config.output_path / f'{image_path.stem}_freigestellt.png'
     config.output_path.mkdir(parents=True, exist_ok=True)
-    result = Image.fromarray(crop)
-    result.save(output_path)
-    result.save(config.output_path / f'{image_path.stem}_freigestellt.png')
-    print(f'{image_path.name}: {image.shape[1]}×{image.shape[0]} → '
-          f'{crop.shape[1]}×{crop.shape[0]} Pixel; {output_path}')
+    Image.fromarray(crop).save(output_path)
+    print(f'{image_path.name}: {image.shape[1]}x{image.shape[0]} -> '
+          f'{crop.shape[1]}x{crop.shape[0]} Pixel; {output_path}')
     if show_preview:
         preview_image(image, mask, bounds, crop, image_path.name)
     return output_path
@@ -250,4 +250,12 @@ def main(config: Config | None = None) -> None:
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--quick-test', action='store_true',
+                        help='Nur eine kleine Zufallsstichprobe verarbeiten')
+    parser.add_argument('--no-preview', action='store_true')
+    parser.add_argument('--input', type=Path, default=paths.PLATINEN)
+    parser.add_argument('--output', type=Path, default=paths.AUSSCHNITTE)
+    args = parser.parse_args()
+    main(Config(input_path=args.input, output_path=args.output,
+                quick_test=args.quick_test, show_preview=not args.no_preview))
