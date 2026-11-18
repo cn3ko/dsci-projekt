@@ -29,7 +29,9 @@ class FakeModel:
     def predict(self, source, **kwargs):
         assert source.mode == "RGB"
         assert kwargs["classes"] == [10]
-        boxes = type("Boxes", (), {"xyxy": Tensor([[10.5, 20, 60, 70]]), "conf": Tensor([0.9])})()
+        boxes = type(
+            "Boxes", (), {"xyxy": Tensor([[10.5, 20, 60, 70]]), "conf": Tensor([0.9])}
+        )()
         return [type("Result", (), {"boxes": boxes})()]
 
 

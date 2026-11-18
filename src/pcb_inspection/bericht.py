@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.metrics import (
+    ConfusionMatrixDisplay,
+    classification_report,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 
 
 def erstelle(
@@ -16,44 +23,58 @@ def erstelle(
     ordner: Path,
     anzeigen: bool = False,
 ) -> None:
-    if not anzeigen:
-        matplotlib.use("Agg")  # ohne Fenster, z.B. auf einem Server
-    import matplotlib.pyplot as plt
+    """Grafiken in ordner speichern und Kennzahlen ausgeben.
 
+    Args:
+        history: history.history aus model.fit (accuracy, loss, val_...).
+        y_wahr: wahre Klassenindizes der Validierungsbilder.
+        y_vorhersage: vorhergesagte Klassenindizes in derselben Reihenfolge.
+        klassen: Klassennamen passend zu den Indizes.
+        ordner: Zielordner, wird bei Bedarf angelegt.
+        anzeigen: Grafiken zusätzlich in einem Fenster zeigen.
+    """
     ordner.mkdir(parents=True, exist_ok=True)
-    trainingskurven(history, ordner / "Trainingskurven.png")
-    konfusionsmatrix(y_wahr, y_vorhersage, klassen, ordner / "Normalized_Konfusionsmatrix.png")
+    figuren = [
+        trainingskurven(history, ordner / "Trainingskurven.png"),
+        konfusionsmatrix(
+            y_wahr, y_vorhersage, klassen, ordner / "Normalized_Konfusionsmatrix.png"
+        ),
+    ]
     print(kennzahlen(y_wahr, y_vorhersage, klassen))
     print(f"Grafiken gespeichert in {ordner}")
     if anzeigen:
         plt.show()
+    for figur in figuren:
+        plt.close(figur)
 
 
-def trainingskurven(history: dict, datei: Path) -> None:
-    import matplotlib.pyplot as plt
-
-    figur = plt.figure(figsize=(8, 6))
-    plt.plot(history["accuracy"], label="Training Accuracy", linewidth=2)
-    plt.plot(
+def trainingskurven(history: dict, datei: Path) -> plt.Figure:
+    """Accuracy und Loss für Training und Validierung über die Epochen plotten."""
+    figur, achse = plt.subplots(figsize=(8, 6))
+    achse.plot(history["accuracy"], label="Training Accuracy", linewidth=2)
+    achse.plot(
         history["val_accuracy"],
         label="Validation Accuracy",
         linewidth=2,
         linestyle="--",
     )
-    plt.plot(history["loss"], label="Training Loss", linewidth=2)
-    plt.plot(history["val_loss"], label="Validation Loss", linewidth=2, linestyle="--")
-    plt.title("Trainings- und Validierungsverlauf des PCB-Klassifikators")
-    plt.xlabel("Epochen")
-    plt.ylabel("Wert (Loss / Accuracy)")
-    plt.legend(loc="upper right")
-    plt.grid(True, linestyle=":", alpha=0.6)
+    achse.plot(history["loss"], label="Training Loss", linewidth=2)
+    achse.plot(
+        history["val_loss"], label="Validation Loss", linewidth=2, linestyle="--"
+    )
+    achse.set_title("Trainings- und Validierungsverlauf des PCB-Klassifikators")
+    achse.set_xlabel("Epochen")
+    achse.set_ylabel("Wert (Loss / Accuracy)")
+    achse.legend(loc="upper right")
+    achse.grid(True, linestyle=":", alpha=0.6)
     figur.savefig(datei, dpi=300, bbox_inches="tight")
+    return figur
 
 
-def konfusionsmatrix(y_wahr, y_vorhersage, klassen: list[str], datei: Path) -> None:
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import ConfusionMatrixDisplay
-
+def konfusionsmatrix(
+    y_wahr, y_vorhersage, klassen: list[str], datei: Path
+) -> plt.Figure:
+    """Zeilenweise normalisierte Konfusionsmatrix: Anteil je wahrer Klasse."""
     figur, achse = plt.subplots(figsize=(8, 8))
     ConfusionMatrixDisplay.from_predictions(
         y_wahr,
@@ -69,16 +90,11 @@ def konfusionsmatrix(y_wahr, y_vorhersage, klassen: list[str], datei: Path) -> N
     plt.setp(achse.get_xticklabels(), rotation=45)
     figur.tight_layout()
     figur.savefig(datei, dpi=300, bbox_inches="tight")
+    return figur
 
 
 def kennzahlen(y_wahr, y_vorhersage, klassen: list[str]) -> str:
-    from sklearn.metrics import (
-        classification_report,
-        f1_score,
-        precision_score,
-        recall_score,
-    )
-
+    """Classification Report plus gewichtete Precision, Recall und F1 als Text."""
     labels = np.arange(len(klassen))
     text = [
         classification_report(

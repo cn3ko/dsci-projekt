@@ -13,13 +13,17 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from huggingface_hub import hf_hub_download
 from PIL import Image, ImageDraw, ImageOps
+from ultralytics import YOLO
 
 from pcb_inspection import paths
 
 
 @dataclass(frozen=True)
 class Config:
+    """Einstellungen für die Gehäuseerkennung (Pfade, Schwellwerte, Kacheln)."""
+
     input_path: Path = paths.AUSSCHNITTE
     # Separater Ordner verhindert Vermischung mit alten Schwellwert-Ergebnissen.
     output_path: Path = paths.GEHAEUSE
@@ -30,11 +34,14 @@ class Config:
     tile_overlap: float = 0.25
     image_size: int = 640
     crop_padding: int = 15
-    expected_count: int = 7  # nur Diagnose; keine erzwungene Auswahl von sieben Objekten
+    expected_count: int = (
+        7  # nur Diagnose; keine erzwungene Auswahl von sieben Objekten
+    )
     quick_test: bool = False
     show_preview: bool = True
 
     def __post_init__(self) -> None:
+        """Ungültige Werte früh mit klarer Meldung abweisen."""
         if not 0 < self.confidence <= 1 or not 0 < self.iou_threshold <= 1:
             raise ValueError("Konfidenz und IoU müssen in (0, 1] liegen.")
         if not 0 <= self.tile_overlap < 1:
@@ -45,17 +52,21 @@ class Config:
 
 @dataclass(frozen=True)
 class Candidate:
+    """Ein gefundenes Gehäuse in Bildkoordinaten des Gesamtbildes."""
+
     box: tuple[float, float, float, float]  # links, oben, rechts, unten, ohne Padding
     confidence: float
 
 
 def tile_starts(length: int, size: int, overlap: float) -> list[int]:
+    """Startpositionen überlappender Kacheln; die letzte Kachel endet genau am Rand."""
     last = max(0, length - size)
     step = max(1, round(size * (1 - overlap)))
     return sorted(set(range(0, last + 1, step)) | {last})
 
 
 def intersection_over_union(a: Candidate, b: Candidate) -> float:
+    """Überlappung zweier Boxen als Anteil ihrer gemeinsamen Fläche (0 bis 1)."""
     x1, y1 = max(a.box[0], b.box[0]), max(a.box[1], b.box[1])
     x2, y2 = min(a.box[2], b.box[2]), min(a.box[3], b.box[3])
     intersection = max(0, x2 - x1) * max(0, y2 - y1)
@@ -65,7 +76,14 @@ def intersection_over_union(a: Candidate, b: Candidate) -> float:
     return intersection / union if union > 0 else 0.0
 
 
-def suppress_duplicates(candidates: list[Candidate], threshold: float) -> list[Candidate]:
+def suppress_duplicates(
+    candidates: list[Candidate], threshold: float
+) -> list[Candidate]:
+    """Doppelte Treffer entfernen (Non-Maximum Suppression).
+
+    Von stark überlappenden Boxen bleibt die mit der höchsten Konfidenz.
+    Ergebnis ist von oben nach unten, dann links nach rechts sortiert.
+    """
     kept = []
     for candidate in sorted(candidates, key=lambda c: c.confidence, reverse=True):
         if all(intersection_over_union(candidate, other) < threshold for other in kept):
@@ -73,13 +91,13 @@ def suppress_duplicates(candidates: list[Candidate], threshold: float) -> list[C
     return sorted(kept, key=lambda c: (c.box[1], c.box[0]))
 
 
-def load_model(config: Config):
-    from ultralytics import YOLO
+def load_model(config: Config) -> tuple[YOLO, list[int]]:
+    """YOLO-Modell laden und die Klassen-IDs für ic bestimmen.
 
+    Ohne eigenes Modell werden die Gewichte einmalig von Hugging Face geladen.
+    """
     weights = config.model_path
     if weights is None:
-        from huggingface_hub import hf_hub_download
-
         weights = Path(
             hf_hub_download(
                 repo_id="Arshia82sbn/pcb-yolov8s-detection",
@@ -102,6 +120,11 @@ def load_model(config: Config):
 def detect_housings(
     image: Image.Image, model, ic_ids: list[int], config: Config
 ) -> list[Candidate]:
+    """IC-Gehäuse im Ganzbild und in überlappenden Kacheln suchen.
+
+    Kleine Gehäuse werden auf dem verkleinerten Ganzbild leicht übersehen,
+    deshalb zusätzlich kachelweise. Doppelte Treffer werden danach entfernt.
+    """
     width, height = image.size
     # Ganzbild liefert Kontext; überlappende Kacheln erhalten kleine Gehäuse.
     windows = {(0, 0, width, height)}
@@ -155,6 +178,7 @@ def detect_housings(
 def process_image(
     path: Path, model, ic_ids: list[int], config: Config, show_preview: bool = False
 ) -> None:
+    """Ein Bild auswerten und Ausschnitte, Übersicht und erkennung.json schreiben."""
     with Image.open(path) as source:
         rgba = ImageOps.exif_transpose(source).convert("RGBA")
     # RGB-Werte unter transparenten Pixeln können noch Tisch/Schatten enthalten.
@@ -180,7 +204,9 @@ def process_image(
         filename = f"gehaeuse_{index:03d}.png"
         rgba.crop(crop_box).save(folder / filename)
         draw.rectangle(candidate.box, outline="red", width=4)
-        draw.text((x1, max(0, y1 - 14)), f"{index}: IC {candidate.confidence:.2f}", fill="red")
+        draw.text(
+            (x1, max(0, y1 - 14)), f"{index}: IC {candidate.confidence:.2f}", fill="red"
+        )
         records.append(
             dict(
                 file=filename,
@@ -194,7 +220,11 @@ def process_image(
         json.dumps(
             dict(
                 source=str(path),
-                model="pcb-yolov8s" if config.model_path is None else str(config.model_path),
+                model=(
+                    "pcb-yolov8s"
+                    if config.model_path is None
+                    else str(config.model_path)
+                ),
                 confidence=config.confidence,
                 detections=records,
             ),
@@ -215,6 +245,7 @@ def process_image(
 
 
 def main(config: Config | None = None) -> None:
+    """Alle *_freigestellt.png im Eingabeordner verarbeiten."""
     config = config or Config()
     if not config.input_path.is_dir():
         raise FileNotFoundError(f"Bildordner nicht gefunden: {config.input_path}")
@@ -225,7 +256,8 @@ def main(config: Config | None = None) -> None:
     )
     if not images:
         raise FileNotFoundError(
-            f"Keine *_freigestellt.png in {config.input_path}; zuerst python -m pcb_inspection.platinen starten."
+            f"Keine *_freigestellt.png in {config.input_path}; "
+            "zuerst python -m pcb_inspection.platinen starten."
         )
     if config.quick_test:
         images = images[:1]
@@ -233,7 +265,9 @@ def main(config: Config | None = None) -> None:
     failures = 0
     for index, path in enumerate(images):
         try:
-            process_image(path, model, ic_ids, config, config.show_preview and index == 0)
+            process_image(
+                path, model, ic_ids, config, config.show_preview and index == 0
+            )
         except Exception as error:
             failures += 1
             print(f"FEHLER bei {path.name}: {error}")
@@ -243,10 +277,14 @@ def main(config: Config | None = None) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--quick-test", action="store_true", help="Nur erstes Bild verarbeiten")
+    parser.add_argument(
+        "--quick-test", action="store_true", help="Nur erstes Bild verarbeiten"
+    )
     parser.add_argument("--no-preview", action="store_true")
     parser.add_argument("--confidence", type=float, default=0.25)
-    parser.add_argument("--model", type=Path, help="Eigene PCB-Modellgewichte statt Download")
+    parser.add_argument(
+        "--model", type=Path, help="Eigene PCB-Modellgewichte statt Download"
+    )
     parser.add_argument("--input", type=Path, default=paths.AUSSCHNITTE)
     parser.add_argument("--output", type=Path, default=paths.GEHAEUSE)
     args = parser.parse_args()

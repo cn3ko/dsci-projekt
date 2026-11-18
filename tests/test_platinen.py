@@ -1,4 +1,7 @@
-"""Tests für Schritt 1: Platine finden und freistellen (synthetische Bilder, keine Daten nötig)."""
+"""Tests für Schritt 1: Platine finden und freistellen.
+
+Nur synthetische Bilder, die echten Daten werden nicht gebraucht.
+"""
 
 import numpy as np
 import pytest
@@ -11,7 +14,10 @@ WEISS = (245, 245, 245)
 
 
 def foto_mit_platine(breite=400, hoehe=300, platine=(50, 80, 250, 280)):
-    """Heller Tisch mit grüner Platine (oben, links, unten, rechts) und schwarzem Chip darauf."""
+    """Heller Tisch mit grüner Platine und schwarzem Chip darauf.
+
+    platine: (oben, links, unten, rechts) in Pixeln.
+    """
     bild = np.full((hoehe, breite, 3), WEISS, dtype=np.uint8)
     oben, links, unten, rechts = platine
     bild[oben:unten, links:rechts] = GRUEN
@@ -85,7 +91,9 @@ def test_process_image_schreibt_nur_freigestellt_mit_transparenz(tmp_path):
     ergebnis = process_image(quelle, cfg)
 
     assert ergebnis.name == "IMG_0001_freigestellt.png"
-    assert [p.name for p in (tmp_path / "out").iterdir()] == ["IMG_0001_freigestellt.png"]
+    assert [p.name for p in (tmp_path / "out").iterdir()] == [
+        "IMG_0001_freigestellt.png"
+    ]
     with Image.open(ergebnis) as bild:
         assert bild.mode == "RGBA"
         assert bild.getpixel((0, 0))[3] == 0  # Rand: transparent

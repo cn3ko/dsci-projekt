@@ -1,4 +1,4 @@
-"""Platinen lokalisieren und mit transparentem Hintergrund in Originalauflösung speichern."""
+"""Platinen lokalisieren und freigestellt in Originalauflösung speichern."""
 
 from __future__ import annotations
 
@@ -35,10 +35,13 @@ class Config:
     min_object_fraction: float = 0.01
 
     def __post_init__(self) -> None:
+        """Ungültige Werte früh mit klarer Meldung abweisen."""
         if self.detection_max_side < 1:
             raise ValueError("detection_max_side muss mindestens 1 sein.")
         if self.closing_radius < 0 or self.crop_padding < 0:
-            raise ValueError("closing_radius und crop_padding dürfen nicht negativ sein.")
+            raise ValueError(
+                "closing_radius und crop_padding dürfen nicht negativ sein."
+            )
         if not 0 < self.min_object_fraction <= 1:
             raise ValueError("min_object_fraction muss im Bereich (0, 1] liegen.")
         if len(self.green_hsv_lower) != 3 or len(self.green_hsv_upper) != 3:
@@ -51,10 +54,13 @@ class Config:
 
 
 def find_images(config: Config) -> list[Path]:
+    """Alle Bilder mit der eingestellten Endung im Eingabeordner, sortiert."""
     if not config.input_path.is_dir():
         raise FileNotFoundError(f"Bildordner nicht gefunden: {config.input_path}")
     images = sorted(
-        path for path in config.input_path.glob(f"*.{config.image_extension}") if path.is_file()
+        path
+        for path in config.input_path.glob(f"*.{config.image_extension}")
+        if path.is_file()
     )
     if not images:
         raise FileNotFoundError(
@@ -64,11 +70,14 @@ def find_images(config: Config) -> list[Path]:
 
 
 def select_images(images: list[Path], config: Config) -> list[Path]:
+    """Im Schnelltest eine reproduzierbare Zufallsstichprobe, sonst alle Bilder."""
     if not config.quick_test:
         return images
     if config.sample_size < 1:
         raise ValueError("Die Stichprobengröße muss mindestens 1 sein.")
-    return random.Random(config.random_seed).sample(images, min(config.sample_size, len(images)))
+    return random.Random(config.random_seed).sample(
+        images, min(config.sample_size, len(images))
+    )
 
 
 def preview_image(
@@ -78,6 +87,7 @@ def preview_image(
     crop: np.ndarray,
     title: str,
 ) -> None:
+    """Original mit Rahmen, Maske und Ergebnis nebeneinander anzeigen."""
     top, left, bottom, right = bounds
     figure, axes = plt.subplots(1, 3, figsize=(15, 7))
     axes[0].imshow(image)
@@ -104,7 +114,9 @@ def preview_image(
     plt.close(figure)
 
 
-def detect_board(image: np.ndarray, config: Config) -> tuple[np.ndarray, tuple[int, int, int, int]]:
+def detect_board(
+    image: np.ndarray, config: Config
+) -> tuple[np.ndarray, tuple[int, int, int, int]]:
     """Grüne Aussenkontur suchen; alle eingeschlossenen Bauteile erhalten.
 
     Die Maske füllt absichtlich auch Bohrungen innerhalb der Platine. Dunkle
@@ -135,7 +147,9 @@ def detect_board(image: np.ndarray, config: Config) -> tuple[np.ndarray, tuple[i
     # Rand auffüllen, damit Closing auch bei angeschnittenen Platinen stabil ist.
     radius = config.closing_radius
     if radius:
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1)
+        )
         padded = cv2.copyMakeBorder(
             green_mask, radius, radius, radius, radius, cv2.BORDER_CONSTANT, value=0
         )
@@ -143,7 +157,9 @@ def detect_board(image: np.ndarray, config: Config) -> tuple[np.ndarray, tuple[i
         green_mask = green_mask[radius:-radius, radius:-radius]
 
     # Alle Konturen finden
-    contours, _ = cv2.findContours(green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
 
     if not contours:
         raise ValueError("Keine grüne Platinenfläche erkannt.")
@@ -185,13 +201,17 @@ def detect_board(image: np.ndarray, config: Config) -> tuple[np.ndarray, tuple[i
 
 
 def process_image(image_path: Path, config: Config, show_preview: bool = False) -> Path:
-    # EXIF-Ausrichtung berücksichtigen, damit Hochformat nicht seitlich gespeichert wird.
+    """Platine eines Fotos freistellen und als <name>_freigestellt.png speichern."""
+    # EXIF-Ausrichtung beachten, damit Hochformat nicht seitlich gespeichert wird.
     with Image.open(image_path) as source:
         image = np.asarray(ImageOps.exif_transpose(source).convert("RGB"))
     mask, bounds = detect_board(image, config)
     top, left, bottom, right = bounds
     crop = np.dstack(
-        (image[top:bottom, left:right], mask[top:bottom, left:right].astype(np.uint8) * 255)
+        (
+            image[top:bottom, left:right],
+            mask[top:bottom, left:right].astype(np.uint8) * 255,
+        )
     )
     # Früher wurde zusätzlich ein identisches *_crop.png geschrieben; eine Datei reicht.
     output_path = config.output_path / f"{image_path.stem}_freigestellt.png"
@@ -207,6 +227,7 @@ def process_image(image_path: Path, config: Config, show_preview: bool = False) 
 
 
 def main(config: Config | None = None) -> None:
+    """Alle Fotos verarbeiten; Fehler einzelner Bilder brechen den Lauf nicht ab."""
     config = config if config is not None else Config()
 
     images = select_images(find_images(config), config)
@@ -221,7 +242,9 @@ def main(config: Config | None = None) -> None:
         print(f"\nBild {index + 1}/{len(images)}: {image_path.name}")
 
         try:
-            process_image(image_path, config, show_preview=(config.show_preview and index == 0))
+            process_image(
+                image_path, config, show_preview=(config.show_preview and index == 0)
+            )
             erfolgreich += 1
 
         except Exception as error:
@@ -237,7 +260,9 @@ def main(config: Config | None = None) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--quick-test", action="store_true", help="Nur eine kleine Zufallsstichprobe verarbeiten"
+        "--quick-test",
+        action="store_true",
+        help="Nur eine kleine Zufallsstichprobe verarbeiten",
     )
     parser.add_argument("--no-preview", action="store_true")
     parser.add_argument("--input", type=Path, default=paths.PLATINEN)

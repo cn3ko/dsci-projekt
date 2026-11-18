@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from pcb_inspection.klassifikator import (
+from pcb_inspection.klassen import (
     interpretiere,
     klassen_aus_ordner,
     klassen_datei,
@@ -23,7 +23,12 @@ def train_dir(tmp_path):
 
 
 def test_klassen_alphabetisch_wie_keras(train_dir):
-    assert klassen_aus_ordner(train_dir) == ["Bad_IC", "Bad_Platine", "Good_IC", "Good_Platine"]
+    assert klassen_aus_ordner(train_dir) == [
+        "Bad_IC",
+        "Bad_Platine",
+        "Good_IC",
+        "Good_Platine",
+    ]
 
 
 def test_fehlender_trainingsordner(tmp_path):
@@ -40,11 +45,16 @@ def test_klassen_werden_neben_modell_gespeichert(tmp_path, train_dir):
 
 
 def test_altes_modell_ohne_json_nutzt_ordner(tmp_path, train_dir):
-    assert lade_klassen(tmp_path / "alt.keras", train_dir) == klassen_aus_ordner(train_dir)
+    assert lade_klassen(tmp_path / "alt.keras", train_dir) == klassen_aus_ordner(
+        train_dir
+    )
 
 
 def test_interpretiere_waehlt_hoechsten_wert():
-    assert interpretiere([[0.1, 0.7, 0.2]], ["a", "b", "c"]) == ("b", pytest.approx(0.7))
+    assert interpretiere([[0.1, 0.7, 0.2]], ["a", "b", "c"]) == (
+        "b",
+        pytest.approx(0.7),
+    )
 
 
 def test_interpretiere_meldet_falsche_klassenzahl():
@@ -56,4 +66,7 @@ def test_interpretiere_meldet_falsche_klassenzahl():
 def test_json_ist_lesbar(tmp_path):
     modell = tmp_path / "m.keras"
     speichere_klassen(modell, ["Bad_IC", "Good_IC"])
-    assert json.loads(klassen_datei(modell).read_text(encoding="utf-8")) == ["Bad_IC", "Good_IC"]
+    assert json.loads(klassen_datei(modell).read_text(encoding="utf-8")) == [
+        "Bad_IC",
+        "Good_IC",
+    ]

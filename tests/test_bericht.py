@@ -1,12 +1,6 @@
 """Tests für Grafiken und Kennzahlen nach dem Training."""
 
-import matplotlib
-import pytest
-
-matplotlib.use("Agg")
-pytest.importorskip("sklearn")
-
-from pcb_inspection import bericht  # noqa: E402
+from pcb_inspection import bericht
 
 KLASSEN = ["Bad_IC", "Good_IC"]
 HISTORY = {
