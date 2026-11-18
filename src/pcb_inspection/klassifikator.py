@@ -43,6 +43,8 @@ class Config:
         klassengewichte: Seltene Klassen beim Training stärker gewichten.
         early_stopping: Abbrechen, wenn val_loss so viele Epochen lang nicht
             besser wird, und die beste Epoche behalten. 0 heisst aus.
+        seed: Startwert für alle Zufallszahlen (Startgewichte, Reihenfolge,
+            Augmentation, Dropout). Gleicher seed, gleiches Ergebnis.
     """
 
     train_dir: Path = paths.DATENSATZ / "train"
@@ -58,6 +60,7 @@ class Config:
     augmentation: bool = False
     klassengewichte: bool = False
     early_stopping: int = 0
+    seed: int = 42
 
 
 BILDENDUNGEN = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
@@ -113,6 +116,7 @@ def lade_datensaetze(
         image_size=config.image_size,
         batch_size=config.batch_size,
         shuffle=True,
+        seed=config.seed,
     )
     val = keras.utils.image_dataset_from_directory(
         config.val_dir,
@@ -193,6 +197,11 @@ def trainiere(config: Config) -> None:
     Args:
         config: Pfade und Hyperparameter.
     """
+    # Setzt Python, NumPy und TensorFlow gleichzeitig. Die Determinismus-Option
+    # sorgt dafür, dass auch parallele Rechnungen immer gleich ablaufen.
+    keras.utils.set_random_seed(config.seed)
+    tf.config.experimental.enable_op_determinism()
+    print(f"Seed: {config.seed}")
     train, val, klassen = lade_datensaetze(config)
     print(f"Erkannte Klassen: {klassen}")
     model = baue_modell(len(klassen), config)
@@ -312,6 +321,9 @@ def main() -> None:
         metavar="N",
         help="stoppen, wenn val_loss N Epochen nicht besser wird",
     )
+    train.add_argument(
+        "--seed", type=int, default=Config.seed, help="Startwert für Zufallszahlen"
+    )
     predict = sub.add_parser("predict", help="Ein Bild klassifizieren")
     predict.add_argument("bild", type=Path)
     args = parser.parse_args()
@@ -326,6 +338,7 @@ def main() -> None:
                 augmentation=args.augmentation,
                 klassengewichte=args.klassengewichte,
                 early_stopping=args.early_stopping,
+                seed=args.seed,
             )
         )
     else:

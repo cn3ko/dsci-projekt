@@ -12,6 +12,7 @@ from pcb_inspection.klassifikator import (  # noqa: E402
     Config,
     berechne_klassengewichte,
     lade_bild,
+    lade_datensaetze,
 )
 
 
@@ -67,6 +68,29 @@ def test_vorhersage_laedt_bild_wie_training(tmp_path):
     wie_training = next(iter(datensatz))[0][0].numpy()
 
     assert np.allclose(lade_bild(ordner / "bild.png", (224, 224)), wie_training)
+
+
+def test_gleicher_seed_gibt_gleiche_reihenfolge(tmp_path):
+    for teil in ["train", "val"]:
+        for klasse in ["a", "b"]:
+            ordner = tmp_path / teil / klasse
+            ordner.mkdir(parents=True)
+            for i in range(10):
+                Image.new("RGB", (8, 8), (i * 20, 0, 0)).save(ordner / f"{i}.png")
+
+    def reihenfolge(seed):
+        config = Config(
+            train_dir=tmp_path / "train",
+            val_dir=tmp_path / "val",
+            image_size=(8, 8),
+            batch_size=4,
+            seed=seed,
+        )
+        train, _, _ = lade_datensaetze(config)
+        return np.concatenate([labels.numpy() for _, labels in train])
+
+    assert np.array_equal(reihenfolge(42), reihenfolge(42))
+    assert not np.array_equal(reihenfolge(42), reihenfolge(7))
 
 
 def test_ohne_optionen_bleibt_training_wie_bisher():
