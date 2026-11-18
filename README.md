@@ -15,6 +15,9 @@ schlecht und trainieren damit einen Klassifikator.
       │  python -m pcb_inspection.klassifikator train
     models/             trainiertes Modell, reports/ Grafiken
 
+In jedem Ordner liegt eine README.md, die erklärt, was darin liegt und warum
+der jeweilige Schritt nötig ist.
+
 
 Einrichten
 ==========
