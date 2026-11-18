@@ -14,9 +14,10 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
+import keras
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import layers, models
+from keras import layers, models
 
 from pcb_inspection import bericht, paths
 from pcb_inspection.klassen import interpretiere, lade_klassen, speichere_klassen
@@ -65,13 +66,13 @@ def lade_datensaetze(
     Raises:
         ValueError: Wenn train und val unterschiedliche Klassenordner haben.
     """
-    train = tf.keras.utils.image_dataset_from_directory(
+    train = keras.utils.image_dataset_from_directory(
         config.train_dir,
         image_size=config.image_size,
         batch_size=config.batch_size,
         shuffle=True,
     )
-    val = tf.keras.utils.image_dataset_from_directory(
+    val = keras.utils.image_dataset_from_directory(
         config.val_dir,
         image_size=config.image_size,
         batch_size=config.batch_size,
@@ -90,7 +91,7 @@ def lade_datensaetze(
     )
 
 
-def baue_modell(anzahl_klassen: int, config: Config) -> tf.keras.Model:
+def baue_modell(anzahl_klassen: int, config: Config) -> keras.Model:
     """MobileNetV2 als eingefrorene Basis mit neuem Klassifikationskopf bauen.
 
     Trainiert wird nur der neue Kopf (Dense 128, Dropout, Softmax). Die Basis
@@ -104,13 +105,13 @@ def baue_modell(anzahl_klassen: int, config: Config) -> tf.keras.Model:
         Das kompilierte Modell, bereit für model.fit.
     """
     form = (*config.image_size, 3)
-    basis = tf.keras.applications.MobileNetV2(
+    basis = keras.applications.MobileNetV2(
         input_shape=form, include_top=False, weights="imagenet"
     )
     basis.trainable = False  # zuerst nur den neuen Kopf trainieren
     model = models.Sequential(
         [
-            tf.keras.Input(shape=form),
+            keras.Input(shape=form),
             layers.Rescaling(
                 1.0 / 127.5, offset=-1
             ),  # auf [-1, 1] wie MobileNetV2 erwartet
@@ -122,8 +123,8 @@ def baue_modell(anzahl_klassen: int, config: Config) -> tf.keras.Model:
         ]
     )
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=config.learning_rate),
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+        optimizer=keras.optimizers.Adam(learning_rate=config.learning_rate),
+        loss=keras.losses.SparseCategoricalCrossentropy(),
         metrics=["accuracy"],
     )
     return model
@@ -175,10 +176,10 @@ def sage_vorher(bild: Path, config: Config) -> tuple[str, float]:
     """
     # compile=False: Für die Vorhersage braucht es Loss und Optimizer nicht, und das
     # Modell lässt sich so auch mit einer anderen Keras-Version laden.
-    model = tf.keras.models.load_model(config.model_path, compile=False)
+    model = keras.models.load_model(config.model_path, compile=False)
     klassen = lade_klassen(config.model_path, config.train_dir)
-    image = tf.keras.utils.load_img(bild, target_size=config.image_size)
-    eingabe = np.expand_dims(tf.keras.utils.img_to_array(image), axis=0)
+    image = keras.utils.load_img(bild, target_size=config.image_size)
+    eingabe = np.expand_dims(keras.utils.img_to_array(image), axis=0)
     wahrscheinlichkeiten = model.predict(eingabe, verbose=0)[0]
     klasse, konfidenz = interpretiere(wahrscheinlichkeiten, klassen)
     print(f"{bild.name}: {klasse} (Sicherheit {konfidenz:.1%})")

@@ -28,7 +28,7 @@ def klassen_aus_ordner(train_dir: Path) -> list[str]:
     """Klassennamen aus den Unterordnern des Trainingsordners lesen.
 
     Die Reihenfolge ist alphabetisch, genau wie bei
-    tf.keras.utils.image_dataset_from_directory.
+    keras.utils.image_dataset_from_directory.
 
     Args:
         train_dir: Ordner mit einem Unterordner pro Klasse.
