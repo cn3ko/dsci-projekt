@@ -38,6 +38,11 @@ class Config:
         epochs: Anzahl Durchläufe über die Trainingsdaten.
         learning_rate: Lernrate des Adam-Optimierers.
         show_plots: Grafiken nach dem Training zusätzlich anzeigen.
+        augmentation: Trainingsbilder zufällig spiegeln, drehen und im
+            Kontrast verändern, damit das Modell weniger auswendig lernt.
+        klassengewichte: Seltene Klassen beim Training stärker gewichten.
+        early_stopping: Abbrechen, wenn val_loss so viele Epochen lang nicht
+            besser wird, und die beste Epoche behalten. 0 heisst aus.
     """
 
     train_dir: Path = paths.DATENSATZ / "train"
@@ -49,6 +54,43 @@ class Config:
     epochs: int = 40
     learning_rate: float = 0.001
     show_plots: bool = False
+    # Ohne diese Optionen läuft das Training wie bisher (Vergleichsmodell).
+    augmentation: bool = False
+    klassengewichte: bool = False
+    early_stopping: int = 0
+
+
+BILDENDUNGEN = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
+
+
+def berechne_klassengewichte(train_dir: Path, klassen: list[str]) -> dict[int, float]:
+    """Gewicht pro Klasse, umgekehrt proportional zur Anzahl Trainingsbilder.
+
+    Formel wie bei scikit-learn "balanced": gesamt / (anzahl_klassen * n_klasse).
+    Eine Klasse mit halb so vielen Bildern zählt also doppelt.
+
+    Args:
+        train_dir: Trainingsordner mit einem Unterordner pro Klasse.
+        klassen: Klassennamen in der Reihenfolge der Modellausgänge.
+
+    Returns:
+        Klassenindex -> Gewicht, wie es model.fit als class_weight erwartet.
+
+    Raises:
+        ValueError: Wenn eine Klasse keine Bilder hat.
+    """
+    anzahlen = [
+        sum(
+            1
+            for p in (train_dir / klasse).iterdir()
+            if p.is_file() and p.suffix.lower() in BILDENDUNGEN
+        )
+        for klasse in klassen
+    ]
+    if 0 in anzahlen:
+        raise ValueError(f"Klasse ohne Bilder: {dict(zip(klassen, anzahlen))}")
+    gesamt = sum(anzahlen)
+    return {i: gesamt / (len(klassen) * n) for i, n in enumerate(anzahlen)}
 
 
 def lade_datensaetze(
@@ -109,9 +151,21 @@ def baue_modell(anzahl_klassen: int, config: Config) -> keras.Model:
         input_shape=form, include_top=False, weights="imagenet"
     )
     basis.trainable = False  # zuerst nur den neuen Kopf trainieren
+    # Zufällige Veränderungen wirken nur beim Training, bei der Vorhersage
+    # lassen diese Schichten das Bild unverändert.
+    augmentation = (
+        [
+            layers.RandomFlip("horizontal_and_vertical"),
+            layers.RandomRotation(0.1),  # bis ±36 Grad
+            layers.RandomContrast(0.2),
+        ]
+        if config.augmentation
+        else []
+    )
     model = models.Sequential(
         [
             keras.Input(shape=form),
+            *augmentation,
             layers.Rescaling(
                 1.0 / 127.5, offset=-1
             ),  # auf [-1, 1] wie MobileNetV2 erwartet
@@ -144,7 +198,30 @@ def trainiere(config: Config) -> None:
     model = baue_modell(len(klassen), config)
     model.summary()
 
-    history = model.fit(train, validation_data=val, epochs=config.epochs)
+    gewichte = None
+    if config.klassengewichte:
+        gewichte = berechne_klassengewichte(config.train_dir, klassen)
+        print(
+            "Klassengewichte:", {klassen[i]: round(g, 2) for i, g in gewichte.items()}
+        )
+    callbacks = []
+    if config.early_stopping:
+        callbacks.append(
+            keras.callbacks.EarlyStopping(
+                monitor="val_loss",
+                patience=config.early_stopping,
+                restore_best_weights=True,  # gespeichert wird die beste Epoche
+                verbose=1,
+            )
+        )
+
+    history = model.fit(
+        train,
+        validation_data=val,
+        epochs=config.epochs,
+        class_weight=gewichte,
+        callbacks=callbacks,
+    )
 
     config.model_path.parent.mkdir(parents=True, exist_ok=True)
     model.save(config.model_path)
@@ -200,13 +277,37 @@ def main() -> None:
     train.add_argument(
         "--zeige", action="store_true", help="Grafiken zusätzlich anzeigen"
     )
+    train.add_argument(
+        "--berichte", type=Path, default=Config.report_dir, help="Ordner für Grafiken"
+    )
+    train.add_argument(
+        "--augmentation", action="store_true", help="Bilder zufällig verändern"
+    )
+    train.add_argument(
+        "--klassengewichte", action="store_true", help="seltene Klassen stärker zählen"
+    )
+    train.add_argument(
+        "--early-stopping",
+        type=int,
+        default=0,
+        metavar="N",
+        help="stoppen, wenn val_loss N Epochen nicht besser wird",
+    )
     predict = sub.add_parser("predict", help="Ein Bild klassifizieren")
     predict.add_argument("bild", type=Path)
     args = parser.parse_args()
 
     if args.befehl == "train":
         trainiere(
-            Config(model_path=args.model, epochs=args.epochs, show_plots=args.zeige)
+            Config(
+                model_path=args.model,
+                report_dir=args.berichte,
+                epochs=args.epochs,
+                show_plots=args.zeige,
+                augmentation=args.augmentation,
+                klassengewichte=args.klassengewichte,
+                early_stopping=args.early_stopping,
+            )
         )
     else:
         sage_vorher(args.bild, Config(model_path=args.model))
