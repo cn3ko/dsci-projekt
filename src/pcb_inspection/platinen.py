@@ -18,7 +18,31 @@ from pcb_inspection import paths
 
 @dataclass(frozen=True)
 class Config:
-    """Erkennung für eine einzelne Platine auf hellem Hintergrund pro Foto."""
+    """Einstellungen für das Freistellen der Platinen.
+
+    Pro Foto wird genau eine grüne Platine auf hellem Hintergrund erwartet.
+
+    Attributes:
+        input_path: Ordner mit den Originalfotos.
+        output_path: Zielordner für die freigestellten Platinen.
+        image_extension: Dateiendung der Fotos ohne Punkt.
+        quick_test: Nur eine zufällige Stichprobe verarbeiten.
+        sample_size: Grösse der Stichprobe im Schnelltest.
+        random_seed: Startwert, damit die Stichprobe reproduzierbar ist.
+        show_preview: Vorschau des ersten Bildes anzeigen.
+        detection_max_side: Längste Kante der verkleinerten Kopie, auf der
+            gesucht wird, in Pixeln. Gespeichert wird in Originalauflösung.
+        green_hsv_lower: Untere HSV-Grenze für Platinengrün (OpenCV-Skala:
+            H 0..179, S und V 0..255).
+        green_hsv_upper: Obere HSV-Grenze für Platinengrün.
+        closing_radius: Radius in Pixeln der verkleinerten Kopie, mit dem
+            kleine Lücken in der Grünmaske geschlossen werden. 0 schaltet das
+            ab.
+        crop_padding: Rand in Pixeln des Originalbildes, der um die Platine
+            stehen bleibt.
+        min_object_fraction: Kleinster erlaubter Anteil der Platine an der
+            Bildfläche. Kleinere Flächen gelten als Fehlerkennung.
+    """
 
     input_path: Path = paths.PLATINEN
     output_path: Path = paths.AUSSCHNITTE
@@ -30,12 +54,16 @@ class Config:
     detection_max_side: int = 1600
     green_hsv_lower: tuple[int, int, int] = (25, 25, 20)
     green_hsv_upper: tuple[int, int, int] = (95, 255, 255)
-    closing_radius: int = 5  # Pixel der verkleinerten Erkennungskopie
-    crop_padding: int = 5  # Pixel im Originalbild
+    closing_radius: int = 5
+    crop_padding: int = 5
     min_object_fraction: float = 0.01
 
     def __post_init__(self) -> None:
-        """Ungültige Werte früh mit klarer Meldung abweisen."""
+        """Ungültige Werte früh mit klarer Meldung abweisen.
+
+        Raises:
+            ValueError: Wenn ein Wert ausserhalb des erlaubten Bereichs liegt.
+        """
         if self.detection_max_side < 1:
             raise ValueError("detection_max_side muss mindestens 1 sein.")
         if self.closing_radius < 0 or self.crop_padding < 0:
@@ -54,7 +82,18 @@ class Config:
 
 
 def find_images(config: Config) -> list[Path]:
-    """Alle Bilder mit der eingestellten Endung im Eingabeordner, sortiert."""
+    """Alle Bilder mit der eingestellten Endung im Eingabeordner finden.
+
+    Args:
+        config: Eingabeordner und Dateiendung.
+
+    Returns:
+        Die Bildpfade, alphabetisch sortiert.
+
+    Raises:
+        FileNotFoundError: Wenn der Ordner fehlt oder keine passenden Bilder
+            enthält.
+    """
     if not config.input_path.is_dir():
         raise FileNotFoundError(f"Bildordner nicht gefunden: {config.input_path}")
     images = sorted(
@@ -70,7 +109,21 @@ def find_images(config: Config) -> list[Path]:
 
 
 def select_images(images: list[Path], config: Config) -> list[Path]:
-    """Im Schnelltest eine reproduzierbare Zufallsstichprobe, sonst alle Bilder."""
+    """Bilder für den Lauf auswählen.
+
+    Im Schnelltest wird eine reproduzierbare Zufallsstichprobe gezogen, sonst
+    werden alle Bilder verwendet.
+
+    Args:
+        images: Alle gefundenen Bilder.
+        config: quick_test, sample_size und random_seed.
+
+    Returns:
+        Die ausgewählten Bilder.
+
+    Raises:
+        ValueError: Wenn im Schnelltest sample_size kleiner als 1 ist.
+    """
     if not config.quick_test:
         return images
     if config.sample_size < 1:
@@ -87,7 +140,15 @@ def preview_image(
     crop: np.ndarray,
     title: str,
 ) -> None:
-    """Original mit Rahmen, Maske und Ergebnis nebeneinander anzeigen."""
+    """Original mit Rahmen, Maske und Ergebnis nebeneinander anzeigen.
+
+    Args:
+        image: Originalbild (RGB).
+        mask: Platinenmaske in Originalgrösse.
+        bounds: Ausschnitt als (oben, links, unten, rechts).
+        crop: Freigestelltes Ergebnis (RGBA).
+        title: Titel über den drei Bildern, meist der Dateiname.
+    """
     top, left, bottom, right = bounds
     figure, axes = plt.subplots(1, 3, figsize=(15, 7))
     axes[0].imshow(image)
@@ -117,10 +178,25 @@ def preview_image(
 def detect_board(
     image: np.ndarray, config: Config
 ) -> tuple[np.ndarray, tuple[int, int, int, int]]:
-    """Grüne Aussenkontur suchen; alle eingeschlossenen Bauteile erhalten.
+    """Platine im Bild finden und ihre Maske erzeugen.
 
-    Die Maske füllt absichtlich auch Bohrungen innerhalb der Platine. Dunkle
-    Pixel ausserhalb der Kontur werden nicht ergänzt: Dort liegen oft Schatten.
+    Gesucht wird die grösste grüne Aussenkontur. Alles innerhalb dieser
+    Kontur gehört zur Platine, auch schwarze Chips, helle Aufdrucke und
+    Bohrungen. Dunkle Pixel ausserhalb werden nicht ergänzt, dort liegen oft
+    Schatten.
+
+    Args:
+        image: RGB-Bild als uint8-Array der Form (Höhe, Breite, 3).
+        config: Farbgrenzen, Verkleinerung, Closing und Rand.
+
+    Returns:
+        Die Maske als bool-Array in Originalgrösse und den Ausschnitt als
+        (oben, links, unten, rechts) inklusive crop_padding. Achtung: Das ist
+        eine andere Reihenfolge als bei PIL (links, oben, rechts, unten).
+
+    Raises:
+        ValueError: Wenn das Bild kein RGB-Bild mit dtype uint8 ist, leer ist,
+            keine grüne Fläche enthält oder die Fläche zu klein ist.
     """
     if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
         raise ValueError("Erwarte ein RGB-Bild mit drei Kanälen und dtype uint8.")
@@ -201,7 +277,22 @@ def detect_board(
 
 
 def process_image(image_path: Path, config: Config, show_preview: bool = False) -> Path:
-    """Platine eines Fotos freistellen und als <name>_freigestellt.png speichern."""
+    """Platine eines Fotos freistellen und als PNG mit Transparenz speichern.
+
+    Die EXIF-Ausrichtung wird beachtet. Ausserhalb der Platine ist das
+    Ergebnis transparent.
+
+    Args:
+        image_path: Pfad zum Originalfoto.
+        config: Einstellungen, output_path bestimmt den Zielordner.
+        show_preview: Vorschau anzeigen.
+
+    Returns:
+        Pfad der gespeicherten Datei <name>_freigestellt.png.
+
+    Raises:
+        ValueError: Wenn auf dem Foto keine Platine erkannt wird.
+    """
     # EXIF-Ausrichtung beachten, damit Hochformat nicht seitlich gespeichert wird.
     with Image.open(image_path) as source:
         image = np.asarray(ImageOps.exif_transpose(source).convert("RGB"))
@@ -227,7 +318,17 @@ def process_image(image_path: Path, config: Config, show_preview: bool = False) 
 
 
 def main(config: Config | None = None) -> None:
-    """Alle Fotos verarbeiten; Fehler einzelner Bilder brechen den Lauf nicht ab."""
+    """Alle Fotos verarbeiten und eine Zusammenfassung ausgeben.
+
+    Fehler bei einzelnen Bildern werden ausgegeben, der Lauf geht weiter.
+
+    Args:
+        config: Einstellungen. None verwendet die Standardwerte.
+
+    Raises:
+        FileNotFoundError: Wenn der Eingabeordner fehlt oder keine Bilder
+            enthält.
+    """
     config = config if config is not None else Config()
 
     images = select_images(find_images(config), config)
