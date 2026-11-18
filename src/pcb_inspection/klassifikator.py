@@ -24,7 +24,20 @@ from pcb_inspection.klassen import interpretiere, lade_klassen, speichere_klasse
 
 @dataclass(frozen=True)
 class Config:
-    """Pfade und Hyperparameter für Training und Vorhersage."""
+    """Pfade und Hyperparameter für Training und Vorhersage.
+
+    Attributes:
+        train_dir: Trainingsbilder, ein Unterordner pro Klasse.
+        val_dir: Validierungsbilder mit denselben Unterordnern.
+        model_path: Speicherort des Modells (.keras).
+        report_dir: Zielordner für die Grafiken nach dem Training.
+        image_size: Bildgrösse (Höhe, Breite), auf die alle Bilder skaliert
+            werden.
+        batch_size: Anzahl Bilder pro Trainingsschritt.
+        epochs: Anzahl Durchläufe über die Trainingsdaten.
+        learning_rate: Lernrate des Adam-Optimierers.
+        show_plots: Grafiken nach dem Training zusätzlich anzeigen.
+    """
 
     train_dir: Path = paths.DATENSATZ / "train"
     val_dir: Path = paths.DATENSATZ / "val"
@@ -42,8 +55,15 @@ def lade_datensaetze(
 ) -> tuple[tf.data.Dataset, tf.data.Dataset, list[str]]:
     """Trainings- und Validierungsbilder aus den Klassenordnern laden.
 
+    Args:
+        config: Ordner, Bildgrösse und Batchgrösse.
+
     Returns:
-        train, val und die Klassennamen in der Reihenfolge der Modellausgänge.
+        Trainingsdaten (gemischt), Validierungsdaten (feste Reihenfolge) und
+        die Klassennamen in der Reihenfolge der Modellausgänge.
+
+    Raises:
+        ValueError: Wenn train und val unterschiedliche Klassenordner haben.
     """
     train = tf.keras.utils.image_dataset_from_directory(
         config.train_dir,
@@ -71,7 +91,18 @@ def lade_datensaetze(
 
 
 def baue_modell(anzahl_klassen: int, config: Config) -> tf.keras.Model:
-    """MobileNetV2 als eingefrorene Basis mit neuem Klassifikationskopf."""
+    """MobileNetV2 als eingefrorene Basis mit neuem Klassifikationskopf bauen.
+
+    Trainiert wird nur der neue Kopf (Dense 128, Dropout, Softmax). Die Basis
+    behält ihre ImageNet-Gewichte.
+
+    Args:
+        anzahl_klassen: Anzahl Ausgänge der Softmax-Schicht.
+        config: Bildgrösse und Lernrate.
+
+    Returns:
+        Das kompilierte Modell, bereit für model.fit.
+    """
     form = (*config.image_size, 3)
     basis = tf.keras.applications.MobileNetV2(
         input_shape=form, include_top=False, weights="imagenet"
@@ -99,7 +130,14 @@ def baue_modell(anzahl_klassen: int, config: Config) -> tf.keras.Model:
 
 
 def trainiere(config: Config) -> None:
-    """Modell trainieren, mit Klassennamen speichern und Bericht schreiben."""
+    """Modell trainieren, speichern und den Bericht schreiben.
+
+    Das Modell landet unter model_path, die Klassennamen daneben als
+    .klassen.json und die Grafiken in report_dir.
+
+    Args:
+        config: Pfade und Hyperparameter.
+    """
     train, val, klassen = lade_datensaetze(config)
     print(f"Erkannte Klassen: {klassen}")
     model = baue_modell(len(klassen), config)
@@ -125,7 +163,16 @@ def trainiere(config: Config) -> None:
 
 
 def sage_vorher(bild: Path, config: Config) -> tuple[str, float]:
-    """Ein Bild klassifizieren und alle Klassenwahrscheinlichkeiten ausgeben."""
+    """Ein Bild klassifizieren und alle Klassenwahrscheinlichkeiten ausgeben.
+
+    Args:
+        bild: Pfad zum Bild. Es wird auf image_size skaliert.
+        config: Modellpfad, Trainingsordner und Bildgrösse.
+
+    Returns:
+        Name der wahrscheinlichsten Klasse und ihre Wahrscheinlichkeit
+        (0 bis 1).
+    """
     # compile=False: Für die Vorhersage braucht es Loss und Optimizer nicht, und das
     # Modell lässt sich so auch mit einer anderen Keras-Version laden.
     model = tf.keras.models.load_model(config.model_path, compile=False)
@@ -141,7 +188,7 @@ def sage_vorher(bild: Path, config: Config) -> tuple[str, float]:
 
 
 def main() -> None:
-    """Kommandozeile: train oder predict."""
+    """Kommandozeile auswerten und train oder predict starten."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
