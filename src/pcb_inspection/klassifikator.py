@@ -126,7 +126,9 @@ def trainiere(config: Config) -> None:
 
 def sage_vorher(bild: Path, config: Config) -> tuple[str, float]:
     """Ein Bild klassifizieren und alle Klassenwahrscheinlichkeiten ausgeben."""
-    model = tf.keras.models.load_model(config.model_path)
+    # compile=False: Für die Vorhersage braucht es Loss und Optimizer nicht, und das
+    # Modell lässt sich so auch mit einer anderen Keras-Version laden.
+    model = tf.keras.models.load_model(config.model_path, compile=False)
     klassen = lade_klassen(config.model_path, config.train_dir)
     image = tf.keras.utils.load_img(bild, target_size=config.image_size)
     eingabe = np.expand_dims(tf.keras.utils.img_to_array(image), axis=0)
