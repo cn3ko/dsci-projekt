@@ -34,6 +34,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]  # Tests laufen auch ohne pip install -e .
 # Datenprüfungen laufen nur auf Wunsch: pytest -m daten
 addopts = "-m 'not daten'"
 markers = [
