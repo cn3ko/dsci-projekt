@@ -22,7 +22,26 @@ from pcb_inspection import paths
 
 @dataclass(frozen=True)
 class Config:
-    """Einstellungen für die Gehäuseerkennung (Pfade, Schwellwerte, Kacheln)."""
+    """Einstellungen für die Gehäuseerkennung.
+
+    Attributes:
+        input_path: Ordner mit den freigestellten Platinen (*_freigestellt.png).
+        output_path: Zielordner. Pro Bild entsteht ein eigener Unterordner.
+        model_path: Eigene YOLO-Gewichte. None lädt pcb-yolov8s von
+            Hugging Face.
+        confidence: Mindestkonfidenz eines Treffers, in (0, 1].
+        iou_threshold: Ab dieser Überlappung (IoU) gelten zwei Boxen als
+            derselbe Treffer, in (0, 1].
+        tile_size: Kantenlänge der Kacheln in Pixeln.
+        tile_overlap: Überlappung benachbarter Kacheln als Anteil, in [0, 1).
+        image_size: Eingabegrösse des Modells in Pixeln.
+        crop_padding: Rand in Pixeln, der um jedes Gehäuse mit ausgeschnitten
+            wird.
+        expected_count: Erwartete Anzahl Gehäuse pro Platine. Dient nur der
+            Warnung in der Ausgabe, die Auswahl wird nicht darauf beschränkt.
+        quick_test: Nur das erste Bild verarbeiten.
+        show_preview: Übersicht des ersten Bildes anzeigen.
+    """
 
     input_path: Path = paths.AUSSCHNITTE
     # Separater Ordner verhindert Vermischung mit alten Schwellwert-Ergebnissen.
@@ -34,14 +53,16 @@ class Config:
     tile_overlap: float = 0.25
     image_size: int = 640
     crop_padding: int = 15
-    expected_count: int = (
-        7  # nur Diagnose; keine erzwungene Auswahl von sieben Objekten
-    )
+    expected_count: int = 7
     quick_test: bool = False
     show_preview: bool = True
 
     def __post_init__(self) -> None:
-        """Ungültige Werte früh mit klarer Meldung abweisen."""
+        """Ungültige Werte früh mit klarer Meldung abweisen.
+
+        Raises:
+            ValueError: Wenn ein Wert ausserhalb des erlaubten Bereichs liegt.
+        """
         if not 0 < self.confidence <= 1 or not 0 < self.iou_threshold <= 1:
             raise ValueError("Konfidenz und IoU müssen in (0, 1] liegen.")
         if not 0 <= self.tile_overlap < 1:
@@ -52,21 +73,46 @@ class Config:
 
 @dataclass(frozen=True)
 class Candidate:
-    """Ein gefundenes Gehäuse in Bildkoordinaten des Gesamtbildes."""
+    """Ein gefundenes Gehäuse in Koordinaten des Gesamtbildes.
 
-    box: tuple[float, float, float, float]  # links, oben, rechts, unten, ohne Padding
+    Attributes:
+        box: (links, oben, rechts, unten) in Pixeln, ohne crop_padding.
+        confidence: Konfidenz des Modells, 0 bis 1.
+    """
+
+    box: tuple[float, float, float, float]
     confidence: float
 
 
 def tile_starts(length: int, size: int, overlap: float) -> list[int]:
-    """Startpositionen überlappender Kacheln; die letzte Kachel endet genau am Rand."""
+    """Startpositionen überlappender Kacheln entlang einer Bildkante bestimmen.
+
+    Die letzte Kachel endet genau am Rand, damit nichts abgeschnitten wird.
+
+    Args:
+        length: Länge der Bildkante in Pixeln.
+        size: Kantenlänge einer Kachel in Pixeln.
+        overlap: Überlappung benachbarter Kacheln als Anteil, in [0, 1).
+
+    Returns:
+        Startpositionen in Pixeln, aufsteigend und ohne Duplikate.
+    """
     last = max(0, length - size)
     step = max(1, round(size * (1 - overlap)))
     return sorted(set(range(0, last + 1, step)) | {last})
 
 
 def intersection_over_union(a: Candidate, b: Candidate) -> float:
-    """Überlappung zweier Boxen als Anteil ihrer gemeinsamen Fläche (0 bis 1)."""
+    """Überlappung zweier Boxen berechnen (Intersection over Union).
+
+    Args:
+        a: Erste Box.
+        b: Zweite Box.
+
+    Returns:
+        Schnittfläche geteilt durch Vereinigungsfläche, 0 bis 1. Haben beide
+        Boxen keine Fläche, ist das Ergebnis 0.0.
+    """
     x1, y1 = max(a.box[0], b.box[0]), max(a.box[1], b.box[1])
     x2, y2 = min(a.box[2], b.box[2]), min(a.box[3], b.box[3])
     intersection = max(0, x2 - x1) * max(0, y2 - y1)
@@ -82,7 +128,14 @@ def suppress_duplicates(
     """Doppelte Treffer entfernen (Non-Maximum Suppression).
 
     Von stark überlappenden Boxen bleibt die mit der höchsten Konfidenz.
-    Ergebnis ist von oben nach unten, dann links nach rechts sortiert.
+
+    Args:
+        candidates: Alle Treffer, auch doppelte aus überlappenden Kacheln.
+        threshold: IoU, ab der zwei Boxen als derselbe Treffer gelten.
+
+    Returns:
+        Die verbleibenden Treffer, von oben nach unten und dann von links
+        nach rechts sortiert.
     """
     kept = []
     for candidate in sorted(candidates, key=lambda c: c.confidence, reverse=True):
@@ -94,7 +147,18 @@ def suppress_duplicates(
 def load_model(config: Config) -> tuple[YOLO, list[int]]:
     """YOLO-Modell laden und die Klassen-IDs für ic bestimmen.
 
-    Ohne eigenes Modell werden die Gewichte einmalig von Hugging Face geladen.
+    Ohne eigenes Modell werden die Gewichte einmalig von Hugging Face geladen
+    und unter models/pcb-yolov8s/ abgelegt.
+
+    Args:
+        config: Einstellungen. model_path wählt eigene Gewichte.
+
+    Returns:
+        Das geladene Modell und die IDs aller Klassen mit dem Namen ic.
+
+    Raises:
+        FileNotFoundError: Wenn model_path gesetzt ist, die Datei aber fehlt.
+        ValueError: Wenn das Modell keine Klasse ic kennt.
     """
     weights = config.model_path
     if weights is None:
@@ -123,7 +187,18 @@ def detect_housings(
     """IC-Gehäuse im Ganzbild und in überlappenden Kacheln suchen.
 
     Kleine Gehäuse werden auf dem verkleinerten Ganzbild leicht übersehen,
-    deshalb zusätzlich kachelweise. Doppelte Treffer werden danach entfernt.
+    deshalb wird zusätzlich kachelweise gesucht. Boxen, die an einer inneren
+    Kachelgrenze abgeschnitten sind, werden verworfen, doppelte Treffer
+    danach entfernt.
+
+    Args:
+        image: RGB-Bild der freigestellten Platine mit weissem Hintergrund.
+        model: Geladenes YOLO-Modell aus load_model.
+        ic_ids: Klassen-IDs, nach denen gesucht wird.
+        config: Schwellwerte, Kachelgrösse und Eingabegrösse des Modells.
+
+    Returns:
+        Die gefundenen Gehäuse, sortiert wie bei suppress_duplicates.
     """
     width, height = image.size
     # Ganzbild liefert Kontext; überlappende Kacheln erhalten kleine Gehäuse.
@@ -178,7 +253,20 @@ def detect_housings(
 def process_image(
     path: Path, model, ic_ids: list[int], config: Config, show_preview: bool = False
 ) -> None:
-    """Ein Bild auswerten und Ausschnitte, Übersicht und erkennung.json schreiben."""
+    """Ein Bild auswerten und die Ergebnisse in einen eigenen Ordner schreiben.
+
+    In output_path/<bildname>/ entstehen ein Ausschnitt pro Gehäuse
+    (gehaeuse_000.png, ...), eine Übersicht mit Rahmen (uebersicht.jpg) und
+    erkennung.json mit Boxen und Konfidenzen. Ausschnitte aus früheren Läufen,
+    die diesmal nicht mehr gefunden wurden, werden gelöscht.
+
+    Args:
+        path: Freigestellte Platine (*_freigestellt.png).
+        model: Geladenes YOLO-Modell aus load_model.
+        ic_ids: Klassen-IDs, nach denen gesucht wird.
+        config: Einstellungen, output_path bestimmt den Zielordner.
+        show_preview: Übersicht anschliessend anzeigen.
+    """
     with Image.open(path) as source:
         rgba = ImageOps.exif_transpose(source).convert("RGBA")
     # RGB-Werte unter transparenten Pixeln können noch Tisch/Schatten enthalten.
@@ -245,7 +333,18 @@ def process_image(
 
 
 def main(config: Config | None = None) -> None:
-    """Alle *_freigestellt.png im Eingabeordner verarbeiten."""
+    """Alle *_freigestellt.png im Eingabeordner verarbeiten.
+
+    Fehler bei einzelnen Bildern werden ausgegeben, der Lauf geht weiter.
+
+    Args:
+        config: Einstellungen. None verwendet die Standardwerte.
+
+    Raises:
+        FileNotFoundError: Wenn der Eingabeordner fehlt oder keine passenden
+            Bilder enthält.
+        SystemExit: Am Ende, wenn mindestens ein Bild fehlgeschlagen ist.
+    """
     config = config or Config()
     if not config.input_path.is_dir():
         raise FileNotFoundError(f"Bildordner nicht gefunden: {config.input_path}")
