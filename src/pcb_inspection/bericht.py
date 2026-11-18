@@ -25,11 +25,14 @@ def erstelle(
 ) -> None:
     """Grafiken in ordner speichern und Kennzahlen ausgeben.
 
+    Schreibt Trainingskurven.png und Normalized_Konfusionsmatrix.png und gibt
+    den Classification Report auf der Konsole aus.
+
     Args:
         history: history.history aus model.fit (accuracy, loss, val_...).
-        y_wahr: wahre Klassenindizes der Validierungsbilder.
-        y_vorhersage: vorhergesagte Klassenindizes in derselben Reihenfolge.
-        klassen: Klassennamen passend zu den Indizes.
+        y_wahr: Wahre Klassenindizes der Validierungsbilder (Array oder Liste).
+        y_vorhersage: Vorhergesagte Klassenindizes in derselben Reihenfolge.
+        klassen: Klassennamen, Index i gehört zu klassen[i].
         ordner: Zielordner, wird bei Bedarf angelegt.
         anzeigen: Grafiken zusätzlich in einem Fenster zeigen.
     """
@@ -49,7 +52,16 @@ def erstelle(
 
 
 def trainingskurven(history: dict, datei: Path) -> plt.Figure:
-    """Accuracy und Loss für Training und Validierung über die Epochen plotten."""
+    """Accuracy und Loss für Training und Validierung über die Epochen plotten.
+
+    Args:
+        history: history.history aus model.fit mit den Schlüsseln accuracy,
+            val_accuracy, loss und val_loss.
+        datei: Zieldatei für die Grafik (PNG, 300 dpi).
+
+    Returns:
+        Die erzeugte Figur. Der Aufrufer schliesst sie mit plt.close.
+    """
     figur, achse = plt.subplots(figsize=(8, 6))
     achse.plot(history["accuracy"], label="Training Accuracy", linewidth=2)
     achse.plot(
@@ -74,7 +86,20 @@ def trainingskurven(history: dict, datei: Path) -> plt.Figure:
 def konfusionsmatrix(
     y_wahr, y_vorhersage, klassen: list[str], datei: Path
 ) -> plt.Figure:
-    """Zeilenweise normalisierte Konfusionsmatrix: Anteil je wahrer Klasse."""
+    """Zeilenweise normalisierte Konfusionsmatrix zeichnen und speichern.
+
+    Jede Zeile zeigt, wie sich die Bilder einer wahren Klasse auf die
+    vorhergesagten Klassen verteilen. Jede Zeile summiert sich zu 1.
+
+    Args:
+        y_wahr: Wahre Klassenindizes.
+        y_vorhersage: Vorhergesagte Klassenindizes in derselben Reihenfolge.
+        klassen: Klassennamen, Index i gehört zu klassen[i].
+        datei: Zieldatei für die Grafik (PNG, 300 dpi).
+
+    Returns:
+        Die erzeugte Figur. Der Aufrufer schliesst sie mit plt.close.
+    """
     figur, achse = plt.subplots(figsize=(8, 8))
     ConfusionMatrixDisplay.from_predictions(
         y_wahr,
@@ -94,7 +119,17 @@ def konfusionsmatrix(
 
 
 def kennzahlen(y_wahr, y_vorhersage, klassen: list[str]) -> str:
-    """Classification Report plus gewichtete Precision, Recall und F1 als Text."""
+    """Classification Report und gewichtete Gesamtwerte als Text zusammenstellen.
+
+    Args:
+        y_wahr: Wahre Klassenindizes.
+        y_vorhersage: Vorhergesagte Klassenindizes in derselben Reihenfolge.
+        klassen: Klassennamen, Index i gehört zu klassen[i].
+
+    Returns:
+        Mehrzeiliger Text: zuerst der Report pro Klasse, danach Precision,
+        Recall und F1, gewichtet nach der Anzahl Bilder pro Klasse.
+    """
     labels = np.arange(len(klassen))
     text = [
         classification_report(
