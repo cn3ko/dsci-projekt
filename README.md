@@ -30,6 +30,13 @@ nicht sauber unterstützt.
 Wer nur einen Teil braucht, kann auch `.[gehaeuse]` oder `.[training]`
 installieren.
 
+Unter Windows die venv nicht mit der Anaconda-Python anlegen. Anaconda bringt
+eigene, ältere C++-Laufzeit-DLLs mit, und TensorFlow bricht dann beim Import
+mit "Failed to load the native TensorFlow runtime" ab. Mit der Python von
+python.org klappt es:
+
+    py -3.12 -m venv .venv
+
 
 1. Platinen freistellen
 =======================
