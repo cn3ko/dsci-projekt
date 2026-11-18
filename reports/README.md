@@ -16,9 +16,9 @@ Normalized_Konfusionsmatrix.png
     gross sind (zum Beispiel viel mehr Good_IC als Bad_IC). So sieht man auch
     bei kleinen Klassen, wie gut sie erkannt werden.
 
-Konfusionsmatrix.png
-    Ältere Version ohne Normalisierung, wird vom aktuellen Code nicht mehr
-    erzeugt.
-
 Die Zahlen dazu (Precision, Recall, F1 pro Klasse) werden beim Training in der
 Konsole ausgegeben.
+
+Die Grafiken sind nicht im Repository (siehe .gitignore), weil sie bei jedem
+Training neu entstehen. Wer sie braucht, trainiert selbst oder legt sie hier
+ab.

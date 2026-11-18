@@ -223,3 +223,8 @@ __marimo__/
 # Projekt
 *.egg-info/
 models/pcb-yolov8s/.cache/
+
+# Ausgaben des Trainings. Nur die README bleibt im Repo, damit der Ordner
+# nach dem Klonen existiert. Die Grafiken erzeugt jeder beim Training selbst.
+reports/*
+!reports/README.md
