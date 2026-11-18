@@ -1,154 +1,173 @@
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
-import os
+"""Qualitätsklassifikator (MobileNetV2, Transfer Learning) trainieren und anwenden.
+
+Training:   python -m pcb_inspection.klassifikator train
+Vorhersage: python -m pcb_inspection.klassifikator predict data/beispiele/IMG_0100.png
+
+Die Klassen ergeben sich aus den Unterordnern von data/datensatz/train/.
+Beim Training werden sie neben dem Modell gespeichert (<modell>.klassen.json),
+damit die Vorhersage immer dieselbe Reihenfolge verwendet wie das Training.
+"""
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import json
 from pathlib import Path
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from tensorflow.keras.preprocessing import image_dataset_from_directory
 
-# 1. Parameter definieren
-IMG_SIZE = (224, 224)
-BATCH_SIZE = 30
-DATA_DIR = Path(__file__).resolve().parent / 'Dataset'
-
-print("Lade Datensatz...")
-
-# 2. Trainings- und Validierungsdaten automatisch aus den Ordnern laden
-TRAIN_DIR = Path(__file__).resolve().parent / 'Dataset' / 'train'
-VAL_DIR = Path(__file__).resolve().parent / 'Dataset' / 'val'
-
-train_dataset = image_dataset_from_directory(
-    TRAIN_DIR,
-    image_size=IMG_SIZE,
-    batch_size=BATCH_SIZE,
-    shuffle=True
-)
-
-val_dataset = image_dataset_from_directory(
-    VAL_DIR,
-    image_size=IMG_SIZE,
-    batch_size=BATCH_SIZE,
-    shuffle=False
-)
-
-class_names = train_dataset.class_names
-print(f"Erkannte Klassen: {class_names}")
-
-# Performance-Optimierung für das Laden der Bilder
-AUTOTUNE = tf.data.AUTOTUNE
-train_dataset = train_dataset.cache().prefetch(buffer_size=AUTOTUNE)
-val_dataset = val_dataset.cache().prefetch(buffer_size=AUTOTUNE)
-
-# 3. Vortrainiertes Modell (MobileNetV2) als Basis laden (Transfer Learning)
-base_model = tf.keras.applications.MobileNetV2(
-    input_shape=(224, 224, 3),
-    include_top=False,
-    weights='imagenet'
-)
-
-# Die Gewichte der Basis erst einmal einfrieren
-base_model.trainable = False
-
-# 4. Netz aufbauen (Basis + Klassifikationsschicht für gut/schlecht)
-model = models.Sequential([
-    layers.Rescaling(1./127.5, offset=-1, input_shape=(224, 224, 3)), # Normalisierung auf [-1, 1]
-    base_model,
-    layers.GlobalAveragePooling2D(),
-    layers.Dense(128, activation='relu'),
-    layers.Dropout(0.2),
-    layers.Dense(len(class_names), activation='softmax') # Softmax für die Klassenwahrscheinlichkeiten
-])
-
-# 5. Modell kompilieren
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-    loss=tf.keras.losses.SparseCategoricalCrossentropy(),
-    metrics=['accuracy']
-)
-
-model.summary()
-
-# --- 6. Training starten ---
-EPOCHS = 40  # oder wie viele Epochen du nutzen möchtest
-print("\n--- Training startet ---")
-history = model.fit(
-    train_dataset,
-    validation_data=val_dataset,
-    epochs=EPOCHS
-)
-
-# --- 7. Modell abspeichern ---
-model.save('pcb_quality_model_tf.keras')
-print("Modell erfolgreich als 'pcb_quality_model_tf.keras' gespeichert!")
-print("\n--- Training beendet! ---")
-
-
-# --- 8. Trainingskurven plotten und speichern ---
-import matplotlib.pyplot as plt
-
-plt.figure(figsize=(8, 6))
-plt.plot(history.history['accuracy'], label='Training Accuracy', linewidth=2)
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy', linewidth=2, linestyle='--')
-plt.plot(history.history['loss'], label='Training Loss', linewidth=2)
-plt.plot(history.history['val_loss'], label='Validation Loss', linewidth=2, linestyle='--')
-
-plt.title('Trainings- und Validierungsverlauf des PCB-Klassifikators')
-plt.xlabel('Epochen')
-plt.ylabel('Wert (Loss / Accuracy)')
-plt.legend(loc='upper right')
-plt.grid(True, linestyle=':', alpha=0.6)
-
-plt.savefig('Trainingskurven.png', dpi=300, bbox_inches='tight')
-print("Trainingskurven erfolgreich als 'Trainingskurven.png' gespeichert!")
-plt.show()
-
-
-# --- 9. Normalisierte Konfusionsmatrix erstellen und speichern ---
 import numpy as np
-from sklearn.metrics import ConfusionMatrixDisplay
 
-# Wahre Labels und Vorhersagen generieren
-y = np.asarray(list(val_dataset.unbatch().map(lambda bild, label: label)))
-yhat = model.predict(val_dataset)
-yhatnum = yhat.argmax(axis=1)
+from pcb_inspection import paths
 
-# Plotten der normalisierten Konfusionsmatrix
-class_ids = np.arange(len(class_names))
-fig, ax = plt.subplots(figsize=(8, 8))
 
-ConfusionMatrixDisplay.from_predictions(
-    y, yhatnum,
-    labels=class_ids,
-    display_labels=class_names,
-    normalize='true',       # Prozentuale Normalisierung
-    cmap=plt.cm.Blues,
-    ax=ax,
-    values_format='.2f'     # Zeigt Werte von 0.00 bis 1.00
-)
+@dataclass(frozen=True)
+class Config:
+    train_dir: Path = paths.DATENSATZ / 'train'
+    val_dir: Path = paths.DATENSATZ / 'val'
+    model_path: Path = paths.MODELLE / 'pcb_quality_model_tf.keras'
+    report_dir: Path = paths.BERICHTE
+    image_size: tuple[int, int] = (224, 224)
+    batch_size: int = 30
+    epochs: int = 40
+    learning_rate: float = 0.001
+    show_plots: bool = False
 
-plt.title("Normalized Confusion Matrix (PCB-Klassifikation)")
-plt.xticks(rotation=45)
-plt.yticks(rotation=0)
 
-plt.tight_layout()
-plt.savefig('Normalized_Konfusionsmatrix.png', dpi=300, bbox_inches='tight')
-print("Normalisierte Konfusionsmatrix erfolgreich als 'Normalized_Konfusionsmatrix.png' gespeichert!")
-plt.show()
+# --- Klassennamen ----------------------------------------------------------
 
-from sklearn.metrics import classification_report, precision_score, recall_score, f1_score
+def klassen_datei(model_path: Path) -> Path:
+    return model_path.with_suffix('.klassen.json')
 
-# 1. Detaillierter Klassifikationsbericht als Text (gibt Precision, Recall & F1 für jede Klasse aus)
-print("\n--- Classification Report ---")
-report = classification_report(
-    y, yhatnum, labels=class_ids, target_names=class_names, zero_division=0
-)
-print(report)
 
-# average='weighted' oder 'macro' sorgt dafür, dass bei mehreren Klassen gemittelt wird
-prec = precision_score(y, yhatnum, average='weighted', zero_division=0)
-rec = recall_score(y, yhatnum, average='weighted', zero_division=0)
-f1 = f1_score(y, yhatnum, average='weighted', zero_division=0)
+def klassen_aus_ordner(train_dir: Path) -> list[str]:
+    """Gleiche Reihenfolge wie image_dataset_from_directory: alphabetisch sortiert."""
+    if not train_dir.is_dir():
+        raise FileNotFoundError(f'Trainingsordner nicht gefunden: {train_dir}')
+    return sorted(p.name for p in train_dir.iterdir() if p.is_dir())
 
-print(f"Gesamt Precision: {prec:.4f}")
-print(f"Gesamt Recall:    {rec:.4f}")
-print(f"Gesamt F1-Score:  {f1:.4f}")
+
+def speichere_klassen(model_path: Path, klassen: list[str]) -> None:
+    klassen_datei(model_path).write_text(json.dumps(klassen, indent=2), encoding='utf-8')
+
+
+def lade_klassen(model_path: Path, train_dir: Path) -> list[str]:
+    """Klassen aus der JSON-Datei neben dem Modell, sonst aus den Trainingsordnern.
+
+    Der Rückgriff auf die Ordner ist nur für ältere Modelle gedacht, die noch
+    ohne JSON gespeichert wurden.
+    """
+    datei = klassen_datei(model_path)
+    if datei.is_file():
+        return json.loads(datei.read_text(encoding='utf-8'))
+    return klassen_aus_ordner(train_dir)
+
+
+def interpretiere(wahrscheinlichkeiten, klassen: list[str]) -> tuple[str, float]:
+    """Wahrscheinlichkeiten eines Bildes in (Klasse, Konfidenz) übersetzen."""
+    werte = np.asarray(wahrscheinlichkeiten, dtype=float).reshape(-1)
+    if len(werte) != len(klassen):
+        raise ValueError(f'Modell liefert {len(werte)} Werte, aber es gibt '
+                         f'{len(klassen)} Klassen: {klassen}')
+    index = int(werte.argmax())
+    return klassen[index], float(werte[index])
+
+
+# --- Training --------------------------------------------------------------
+
+def lade_datensaetze(config: Config):
+    import tensorflow as tf
+
+    train = tf.keras.utils.image_dataset_from_directory(
+        config.train_dir, image_size=config.image_size,
+        batch_size=config.batch_size, shuffle=True)
+    val = tf.keras.utils.image_dataset_from_directory(
+        config.val_dir, image_size=config.image_size,
+        batch_size=config.batch_size, shuffle=False)
+    if train.class_names != val.class_names:
+        raise ValueError(f'train und val haben unterschiedliche Klassen: '
+                         f'{train.class_names} / {val.class_names}')
+    klassen = train.class_names
+    autotune = tf.data.AUTOTUNE
+    return (train.cache().prefetch(autotune), val.cache().prefetch(autotune), klassen)
+
+
+def baue_modell(anzahl_klassen: int, config: Config):
+    import tensorflow as tf
+    from tensorflow.keras import layers, models
+
+    form = (*config.image_size, 3)
+    basis = tf.keras.applications.MobileNetV2(
+        input_shape=form, include_top=False, weights='imagenet')
+    basis.trainable = False  # zuerst nur den neuen Kopf trainieren
+    model = models.Sequential([
+        tf.keras.Input(shape=form),
+        layers.Rescaling(1. / 127.5, offset=-1),  # auf [-1, 1] wie MobileNetV2 erwartet
+        basis,
+        layers.GlobalAveragePooling2D(),
+        layers.Dense(128, activation='relu'),
+        layers.Dropout(0.2),
+        layers.Dense(anzahl_klassen, activation='softmax'),
+    ])
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=config.learning_rate),
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+        metrics=['accuracy'])
+    return model
+
+
+def trainiere(config: Config) -> None:
+    train, val, klassen = lade_datensaetze(config)
+    print(f'Erkannte Klassen: {klassen}')
+    model = baue_modell(len(klassen), config)
+    model.summary()
+
+    history = model.fit(train, validation_data=val, epochs=config.epochs)
+
+    config.model_path.parent.mkdir(parents=True, exist_ok=True)
+    model.save(config.model_path)
+    speichere_klassen(config.model_path, klassen)
+    print(f'Modell gespeichert: {config.model_path}')
+
+    from pcb_inspection import bericht
+    y_wahr = np.concatenate([labels.numpy() for _, labels in val])
+    y_vorhersage = model.predict(val).argmax(axis=1)
+    bericht.erstelle(history.history, y_wahr, y_vorhersage, klassen,
+                     config.report_dir, config.show_plots)
+
+
+# --- Vorhersage ------------------------------------------------------------
+
+def sage_vorher(bild: Path, config: Config) -> tuple[str, float]:
+    import tensorflow as tf
+
+    model = tf.keras.models.load_model(config.model_path)
+    klassen = lade_klassen(config.model_path, config.train_dir)
+    image = tf.keras.utils.load_img(bild, target_size=config.image_size)
+    eingabe = np.expand_dims(tf.keras.utils.img_to_array(image), axis=0)
+    wahrscheinlichkeiten = model.predict(eingabe, verbose=0)[0]
+    klasse, konfidenz = interpretiere(wahrscheinlichkeiten, klassen)
+    print(f'{bild.name}: {klasse} (Sicherheit {konfidenz:.1%})')
+    for name, wert in zip(klassen, wahrscheinlichkeiten):
+        print(f'  {name:<15} {wert:.3f}')
+    return klasse, konfidenz
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--model', type=Path, default=Config.model_path)
+    sub = parser.add_subparsers(dest='befehl', required=True)
+    train = sub.add_parser('train', help='Modell trainieren und Berichte schreiben')
+    train.add_argument('--epochs', type=int, default=Config.epochs)
+    train.add_argument('--zeige', action='store_true', help='Grafiken zusätzlich anzeigen')
+    predict = sub.add_parser('predict', help='Ein Bild klassifizieren')
+    predict.add_argument('bild', type=Path)
+    args = parser.parse_args()
+
+    if args.befehl == 'train':
+        trainiere(Config(model_path=args.model, epochs=args.epochs, show_plots=args.zeige))
+    else:
+        sage_vorher(args.bild, Config(model_path=args.model))
+
+
+if __name__ == '__main__':
+    main()
