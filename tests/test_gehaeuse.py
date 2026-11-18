@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 import tempfile
 from PIL import Image
-from Chips_analysis import Candidate, Config, tile_starts, suppress_duplicates, detect_housings, process_image
+from pcb_inspection.gehaeuse import Candidate, Config, tile_starts, suppress_duplicates, detect_housings, process_image
 
 
 class Tensor:

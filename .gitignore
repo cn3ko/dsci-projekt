@@ -219,3 +219,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Projekt
+*.egg-info/
+models/pcb-yolov8s/.cache/

@@ -1,7 +1,6 @@
 """IC-Gehäuse mit PCB-YOLO erkennen und aus freigestellten Platinen ausschneiden.
 
-Start: python Chips_analysis.py --quick-test --no-preview
-Abhängigkeiten: python -m pip install -r requirements-chips.txt
+Start: python -m pcb_inspection.gehaeuse --quick-test --no-preview
 Modellquelle: https://huggingface.co/Arshia82sbn/pcb-yolov8s-detection
 Beim ersten Start werden Modellgewichte heruntergeladen, Bilder bleiben lokal.
 """
@@ -15,14 +14,14 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageOps
 
-ROOT = Path(__file__).resolve().parent
+from pcb_inspection import paths
 
 
 @dataclass(frozen=True)
 class Config:
-    input_path: Path = ROOT / 'Ausschnitte'
+    input_path: Path = paths.AUSSCHNITTE
     # Separater Ordner verhindert Vermischung mit alten Schwellwert-Ergebnissen.
-    output_path: Path = ROOT / 'Gehaeuse_YOLO'
+    output_path: Path = paths.GEHAEUSE
     model_path: Path | None = None
     confidence: float = 0.25
     iou_threshold: float = 0.45
@@ -80,7 +79,7 @@ def load_model(config: Config):
         from huggingface_hub import hf_hub_download
         weights = Path(hf_hub_download(
             repo_id='Arshia82sbn/pcb-yolov8s-detection', filename='best.pt',
-            revision='7eb710b', local_dir=ROOT / 'models' / 'pcb-yolov8s',
+            revision='7eb710b', local_dir=paths.MODELLE / 'pcb-yolov8s',
         ))
     elif not weights.is_file():
         raise FileNotFoundError(f'Modell nicht gefunden: {weights}')
@@ -178,7 +177,7 @@ def main(config: Config | None = None) -> None:
     images = sorted(p for p in config.input_path.iterdir()
                     if p.is_file() and p.name.endswith('_freigestellt.png'))
     if not images:
-        raise FileNotFoundError(f'Keine *_freigestellt.png in {config.input_path}; zuerst extract_platinen.py starten.')
+        raise FileNotFoundError(f'Keine *_freigestellt.png in {config.input_path}; zuerst python -m pcb_inspection.platinen starten.')
     if config.quick_test:
         images = images[:1]
     model, ic_ids = load_model(config)
@@ -199,8 +198,8 @@ if __name__ == '__main__':
     parser.add_argument('--no-preview', action='store_true')
     parser.add_argument('--confidence', type=float, default=0.25)
     parser.add_argument('--model', type=Path, help='Eigene PCB-Modellgewichte statt Download')
-    parser.add_argument('--input', type=Path, default=ROOT / 'Ausschnitte')
-    parser.add_argument('--output', type=Path, default=ROOT / 'Gehaeuse_YOLO')
+    parser.add_argument('--input', type=Path, default=paths.AUSSCHNITTE)
+    parser.add_argument('--output', type=Path, default=paths.GEHAEUSE)
     args = parser.parse_args()
     main(Config(input_path=args.input, output_path=args.output, model_path=args.model,
                 confidence=args.confidence, quick_test=args.quick_test,

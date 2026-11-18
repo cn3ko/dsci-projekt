@@ -12,12 +12,15 @@ from matplotlib.patches import Rectangle
 import numpy as np
 from PIL import Image, ImageOps
 
+from pcb_inspection import paths
+
+
 @dataclass(frozen=True)
 class Config:
     """Erkennung für eine einzelne Platine auf hellem Hintergrund pro Foto."""
 
-    input_path: Path = Path(__file__).resolve().parent / 'Platinen'
-    output_path: Path = Path(__file__).resolve().parent / 'Ausschnitte'
+    input_path: Path = paths.PLATINEN
+    output_path: Path = paths.AUSSCHNITTE
     image_extension: str = 'png'
     quick_test: bool = False
     sample_size: int = 4

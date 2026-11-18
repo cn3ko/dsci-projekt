@@ -1,0 +1,41 @@
+[project]
+name = "pcb-inspection"
+version = "0.1.0"
+description = "Semesterarbeit Platinen: Platinen freistellen, IC-Gehäuse erkennen, Qualität klassifizieren"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"  # TensorFlow unterstützt neuere Versionen noch nicht zuverlässig
+dependencies = [
+    "numpy",
+    "Pillow>=10",
+    "opencv-python",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+gehaeuse = [
+    "ultralytics>=8.3,<9",
+    "huggingface-hub>=0.26,<1",
+]
+training = [
+    "tensorflow>=2.16",
+    "scikit-learn",
+]
+dev = [
+    "pytest>=8",
+]
+alles = ["pcb-inspection[gehaeuse,training,dev]"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Datenprüfungen laufen nur auf Wunsch: pytest -m daten
+addopts = "-m 'not daten'"
+markers = [
+    "daten: prüft den echten Datensatz unter data/ (langsamer, braucht die Bilder)",
+]
