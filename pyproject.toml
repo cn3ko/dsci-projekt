@@ -51,10 +51,14 @@ quote-style = "double"
 
 [tool.ruff.lint]
 # E/W/F: Fehler und Stil, I: Importreihenfolge, D: Docstrings, Q: Anführungszeichen
-select = ["E", "W", "F", "I", "D", "Q"]
+# DOC201/DOC501: Docstring muss Returns und Raises nennen, wenn die Funktion
+# etwas zurückgibt oder eine Exception wirft. Die D-Regeln prüfen nur die Form.
+select = ["E", "W", "F", "I", "D", "Q", "DOC201", "DOC501"]
+preview = true  # die DOC-Regeln gibt es bisher nur als Preview
+explicit-preview-rules = true  # sonst würden alle Preview-Regeln aktiv
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D"]  # Testnamen beschreiben sich selbst
+"tests/*" = ["D", "DOC"]  # Testnamen beschreiben sich selbst
