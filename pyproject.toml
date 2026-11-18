@@ -22,6 +22,7 @@ training = [
 ]
 dev = [
     "pytest>=8",
+    "ruff>=0.6",
 ]
 alles = ["pcb-inspection[gehaeuse,training,dev]"]
 
@@ -40,3 +41,20 @@ addopts = "-m 'not daten'"
 markers = [
     "daten: prüft den echten Datensatz unter data/ (langsamer, braucht die Bilder)",
 ]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ruff.lint]
+# E/W/F: Fehler und Stil, I: Importreihenfolge, D: Docstrings, Q: Anführungszeichen
+select = ["E", "W", "F", "I", "D", "Q"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]  # Testnamen beschreiben sich selbst
