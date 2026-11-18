@@ -240,6 +240,26 @@ def trainiere(config: Config) -> None:
     )
 
 
+def lade_bild(bild: Path, image_size: tuple[int, int]) -> np.ndarray:
+    """Ein Bild genauso laden und skalieren wie beim Training.
+
+    Gleiche Schritte wie in image_dataset_from_directory: mit TensorFlow
+    dekodieren und bilinear skalieren. Vorher wurde keras.utils.load_img
+    verwendet, das mit PIL und nearest skaliert. Dann bekam das Modell bei der
+    Vorhersage leicht andere Bilder als im Training.
+
+    Args:
+        bild: Pfad zum Bild.
+        image_size: Zielgrösse (Höhe, Breite).
+
+    Returns:
+        Array der Form (Höhe, Breite, 3) mit Werten von 0 bis 255.
+    """
+    roh = tf.io.read_file(str(bild))
+    image = tf.image.decode_image(roh, channels=3, expand_animations=False)
+    return tf.image.resize(image, image_size, method="bilinear").numpy()
+
+
 def sage_vorher(bild: Path, config: Config) -> tuple[str, float]:
     """Ein Bild klassifizieren und alle Klassenwahrscheinlichkeiten ausgeben.
 
@@ -255,8 +275,7 @@ def sage_vorher(bild: Path, config: Config) -> tuple[str, float]:
     # Modell lässt sich so auch mit einer anderen Keras-Version laden.
     model = keras.models.load_model(config.model_path, compile=False)
     klassen = lade_klassen(config.model_path, config.train_dir)
-    image = keras.utils.load_img(bild, target_size=config.image_size)
-    eingabe = np.expand_dims(keras.utils.img_to_array(image), axis=0)
+    eingabe = np.expand_dims(lade_bild(bild, config.image_size), axis=0)
     wahrscheinlichkeiten = model.predict(eingabe, verbose=0)[0]
     klasse, konfidenz = interpretiere(wahrscheinlichkeiten, klassen)
     print(f"{bild.name}: {klasse} (Sicherheit {konfidenz:.1%})")

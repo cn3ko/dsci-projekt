@@ -1,10 +1,18 @@
 """Tests für die Trainingsoptionen des Klassifikators (ohne echtes Training)."""
 
+import numpy as np
 import pytest
+from PIL import Image
 
 pytest.importorskip("tensorflow")
 
-from pcb_inspection.klassifikator import Config, berechne_klassengewichte  # noqa: E402
+import keras  # noqa: E402
+
+from pcb_inspection.klassifikator import (  # noqa: E402
+    Config,
+    berechne_klassengewichte,
+    lade_bild,
+)
 
 
 def lege_bilder_an(ordner, anzahl):
@@ -44,6 +52,21 @@ def test_leere_klasse_gibt_klaren_fehler(tmp_path):
     (tmp_path / "b").mkdir()
     with pytest.raises(ValueError, match="ohne Bilder"):
         berechne_klassengewichte(tmp_path, ["a", "b"])
+
+
+def test_vorhersage_laedt_bild_wie_training(tmp_path):
+    # Zufallsbild mit feinen Details, damit nearest und bilinear verschieden sind
+    pixel = np.random.default_rng(0).integers(0, 256, (300, 400, 3), dtype=np.uint8)
+    ordner = tmp_path / "klasse"
+    ordner.mkdir()
+    Image.fromarray(pixel).save(ordner / "bild.png")
+
+    datensatz = keras.utils.image_dataset_from_directory(
+        tmp_path, image_size=(224, 224), batch_size=1, shuffle=False
+    )
+    wie_training = next(iter(datensatz))[0][0].numpy()
+
+    assert np.allclose(lade_bild(ordner / "bild.png", (224, 224)), wie_training)
 
 
 def test_ohne_optionen_bleibt_training_wie_bisher():
